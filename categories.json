@@ -1,0 +1,32 @@
+{
+  "heading_to_category": {
+    "Lazer": "🎮 Lazer",
+    "Restaurantes": "🍔 Restaurante",
+    "Saúde": "🏥 Saúde",
+    "Serviços": "📦 Outros essenciais",
+    "Supermercados": "🛒 Mercado",
+    "Vestuário": "👕 Roupas / Calçados",
+    "Outros lançamentos": "📱 Assinaturas",
+    "Compras parceladas": "🛍️ Compras",
+    "Pagamentos/Créditos": "💳 Cartão / Financeiro"
+  },
+  "merchant_rules": [
+    { "pattern": "CINEMARK", "category": "🎬 Cinema / Show" },
+    { "pattern": "OUTBACK", "category": "🍔 Restaurante" },
+    { "pattern": "BACIO DI LATTE", "category": "☕ Café / Doces" },
+    { "pattern": "PEDRO GIORDANI", "category": "🍔 Restaurante" },
+    { "pattern": "DELICIA DO LAGO", "category": "🍔 Restaurante" },
+    { "pattern": "PRIMATO", "category": "🛒 Mercado" },
+    { "pattern": "FARMACIA|DROGARIA|PANVEL", "category": "💊 Farmácia" },
+    { "pattern": "HESTORY BARBEARIA|BARBEARIA", "category": "💈 Barbeiro / Beleza" },
+    { "pattern": "POSTO|IPIRANGA|SHELL|PETROBRAS|KAWY", "category": "⛽ Combustível" },
+    { "pattern": "YOUCOM", "category": "👕 Roupas / Calçados" },
+    { "pattern": "OPENAI|CHATGPT|YOUTUB|SPOTIFY|NETFLIX|AMAZON PRIME|DISNEY", "category": "📱 Assinaturas" },
+    { "pattern": "GOOGLE", "category": "📱 Assinaturas" },
+    { "pattern": "IOF", "category": "💳 Cartão / Financeiro" },
+    { "pattern": "LIVELO|PASSAGEM|AZUL|GOL|LATAM|UBER|99APP", "category": "🚗 Transporte" },
+    { "pattern": "AMAZON|MERCADOLIVRE|SHOPEE", "category": "🛍️ Compras" },
+    { "pattern": "MARIA BENEDITA", "category": "🍔 Restaurante" },
+    { "pattern": "POLACOECOELHO", "category": "📦 Outros essenciais" }
+  ]
+}

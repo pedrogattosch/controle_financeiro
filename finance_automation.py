@@ -16,6 +16,8 @@ from openpyxl import load_workbook
 from pypdf import PdfReader
 
 
+BASE_DIR = Path(__file__).resolve().parent
+
 MONTH_SHEETS = {
     1: "Janeiro",
     2: "Fevereiro",
@@ -47,38 +49,6 @@ TEXT_MONTHS = {
     "dezembro": 12,
 }
 
-HEADING_TO_CATEGORY = {
-    "Lazer": "🎮 Lazer",
-    "Restaurantes": "🍔 Restaurante",
-    "Saúde": "🏥 Saúde",
-    "Serviços": "📦 Outros essenciais",
-    "Supermercados": "🛒 Mercado",
-    "Vestuário": "👕 Roupas / Calçados",
-    "Outros lançamentos": "📱 Assinaturas",
-    "Compras parceladas": "🛍️ Compras",
-    "Pagamentos/Créditos": "💳 Cartão / Financeiro",
-}
-
-MERCHANT_RULES = [
-    (r"CINEMARK", "🎬 Cinema / Show"),
-    (r"OUTBACK", "🍔 Restaurante"),
-    (r"BACIO DI LATTE", "☕ Café / Doces"),
-    (r"PEDRO GIORDANI", "🍔 Restaurante"),
-    (r"DELICIA DO LAGO", "🍔 Restaurante"),
-    (r"PRIMATO", "🛒 Mercado"),
-    (r"FARMACIA|DROGARIA|PANVEL", "💊 Farmácia"),
-    (r"HESTORY BARBEARIA|BARBEARIA", "💈 Barbeiro / Beleza"),
-    (r"POSTO|IPIRANGA|SHELL|PETROBRAS|KAWY", "⛽ Combustível"),
-    (r"YOUCOM", "👕 Roupas / Calçados"),
-    (r"OPENAI|CHATGPT|YOUTUB|SPOTIFY|NETFLIX|AMAZON PRIME|DISNEY", "📱 Assinaturas"),
-    (r"GOOGLE", "📱 Assinaturas"),
-    (r"IOF", "💳 Cartão / Financeiro"),
-    (r"LIVELO|PASSAGEM|AZUL|GOL|LATAM|UBER|99APP", "🚗 Transporte"),
-    (r"AMAZON|MERCADOLIVRE|SHOPEE", "🛍️ Compras"),
-    (r"MARIA BENEDITA", "🍔 Restaurante"),
-    (r"POLACOECOELHO", "📦 Outros essenciais"),
-]
-
 TRANSACTION_RE = re.compile(
     r"^(?P<date>\d{2}/\d{2})\s+(?P<description>.+?)\s+R\$\s+(?P<amount>-?[\d\.,]+)$"
 )
@@ -98,6 +68,12 @@ class Transaction:
 
 def load_config(config_path: Path) -> dict:
     with config_path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def load_categories(categories_path: Path | None = None) -> dict:
+    resolved_path = categories_path or (BASE_DIR / "categories.json")
+    with resolved_path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -139,11 +115,12 @@ def extract_statement_close_date(full_text: str) -> datetime:
     raise ValueError("Não foi possível identificar a data de fechamento da fatura.")
 
 
-def parse_pdf_transactions(pdf_path: Path) -> list[tuple[str, str, Decimal]]:
+def parse_pdf_transactions(pdf_path: Path, category_rules: dict) -> list[tuple[str, str, Decimal]]:
     reader = PdfReader(str(pdf_path))
     page_texts = [page.extract_text() or "" for page in reader.pages]
     full_text = "\n".join(page_texts)
     close_date = extract_statement_close_date(full_text)
+    heading_to_category = category_rules["heading_to_category"]
 
     transactions: list[tuple[str, str, Decimal]] = []
     current_heading = ""
@@ -164,7 +141,7 @@ def parse_pdf_transactions(pdf_path: Path) -> list[tuple[str, str, Decimal]]:
             continue
         if "(Cartão " in line or line.startswith("Data Descrição País Valor"):
             continue
-        if line in HEADING_TO_CATEGORY:
+        if line in heading_to_category:
             current_heading = line
             continue
         match = TRANSACTION_RE.match(line)
@@ -201,13 +178,15 @@ def load_category_index(workbook_path: Path) -> dict[str, str]:
     return category_index
 
 
-def choose_category(description: str, bank_heading: str, category_index: dict[str, str]) -> str:
-    for pattern, category in MERCHANT_RULES:
+def choose_category(description: str, bank_heading: str, category_index: dict[str, str], category_rules: dict) -> str:
+    for rule in category_rules["merchant_rules"]:
+        pattern = rule["pattern"]
+        category = rule["category"]
         if re.search(pattern, description, re.IGNORECASE):
             if category in category_index:
                 return category
 
-    fallback = HEADING_TO_CATEGORY.get(bank_heading)
+    fallback = category_rules["heading_to_category"].get(bank_heading)
     if fallback in category_index:
         return fallback
 
@@ -216,15 +195,20 @@ def choose_category(description: str, bank_heading: str, category_index: dict[st
     raise ValueError("Nenhuma categoria válida encontrada na planilha.")
 
 
-def build_transactions(pdf_path: Path, workbook_path: Path) -> list[Transaction]:
+def build_transactions(
+    pdf_path: Path,
+    workbook_path: Path,
+    categories_path: Path | None = None,
+) -> list[Transaction]:
+    category_rules = load_categories(categories_path)
     category_index = load_category_index(workbook_path)
-    parsed_rows = parse_pdf_transactions(pdf_path)
+    parsed_rows = parse_pdf_transactions(pdf_path, category_rules)
     transactions: list[Transaction] = []
 
     for bank_heading, packed_payload, amount in parsed_rows:
         iso_date, description = packed_payload.split("|", 1)
         date = datetime.strptime(iso_date, "%Y-%m-%d")
-        category = choose_category(description, bank_heading, category_index)
+        category = choose_category(description, bank_heading, category_index, category_rules)
         target_type = category_index[category]
         if amount <= 0:
             continue
@@ -343,8 +327,14 @@ def write_transactions(
     return {"imported": imported_count, "skipped": skipped_count}
 
 
-def process_invoice(pdf_path: Path, workbook_path: Path, output_path: Path | None, dry_run: bool) -> dict[str, int]:
-    transactions = build_transactions(pdf_path, workbook_path)
+def process_invoice(
+    pdf_path: Path,
+    workbook_path: Path,
+    output_path: Path | None,
+    dry_run: bool,
+    categories_path: Path | None = None,
+) -> dict[str, int]:
+    transactions = build_transactions(pdf_path, workbook_path, categories_path=categories_path)
     if dry_run:
         print(f"Arquivo: {pdf_path.name}")
         for tx in transactions:
@@ -364,6 +354,7 @@ def watch_folder(config: dict) -> None:
     workbook_path = Path(config["workbook_path"])
     processed_dir = Path(config["processed_dir"])
     output_path = Path(config["output_workbook_path"]) if config.get("output_workbook_path") else None
+    categories_path = Path(config["categories_path"]) if config.get("categories_path") else None
     poll_seconds = int(config.get("poll_seconds", 15))
 
     processed_dir.mkdir(parents=True, exist_ok=True)
@@ -377,7 +368,13 @@ def watch_folder(config: dict) -> None:
                 continue
 
             try:
-                result = process_invoice(pdf_path, workbook_path, output_path=output_path, dry_run=False)
+                result = process_invoice(
+                    pdf_path,
+                    workbook_path,
+                    output_path=output_path,
+                    dry_run=False,
+                    categories_path=categories_path,
+                )
                 pdf_path.replace(archived_path)
                 print(
                     f"[OK] {pdf_path.name}: encontradas {result['found']}, "
@@ -407,6 +404,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Mostra os lançamentos interpretados sem gravar nada.",
     )
+    import_parser.add_argument(
+        "--categories",
+        help="Opcional: caminho do arquivo JSON com regras de categorias.",
+    )
 
     watch_parser = subparsers.add_parser("watch", help="Monitora a pasta configurada de faturas.")
     watch_parser.add_argument(
@@ -429,11 +430,13 @@ def main() -> int:
 
     if args.command == "import-pdf":
         output_path = Path(args.output_workbook) if args.output_workbook else None
+        categories_path = Path(args.categories) if args.categories else None
         result = process_invoice(
             pdf_path=Path(args.pdf),
             workbook_path=Path(args.workbook),
             output_path=output_path,
             dry_run=args.dry_run,
+            categories_path=categories_path,
         )
         print(json.dumps(result, ensure_ascii=False))
         return 0
