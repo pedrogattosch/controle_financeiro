@@ -77,6 +77,27 @@ def load_categories(categories_path: Path | None = None) -> dict:
         return json.load(fh)
 
 
+def load_learned_categories(learned_path: Path | None = None) -> dict[str, str]:
+    resolved_path = learned_path or (BASE_DIR / "learned_categories.json")
+    if not resolved_path.exists():
+        return {}
+
+    with resolved_path.open("r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+
+    return {
+        normalize_description(key): value
+        for key, value in payload.get("description_to_category", {}).items()
+    }
+
+
+def save_learned_categories(description_map: dict[str, str], learned_path: Path | None = None) -> None:
+    resolved_path = learned_path or (BASE_DIR / "learned_categories.json")
+    payload = {"description_to_category": dict(sorted(description_map.items()))}
+    with resolved_path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+
 def normalize_spaces(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip())
 
@@ -178,7 +199,17 @@ def load_category_index(workbook_path: Path) -> dict[str, str]:
     return category_index
 
 
-def choose_category(description: str, bank_heading: str, category_index: dict[str, str], category_rules: dict) -> str:
+def choose_category(
+    description: str,
+    bank_heading: str,
+    category_index: dict[str, str],
+    category_rules: dict,
+    learned_categories: dict[str, str],
+) -> str:
+    learned_category = learned_categories.get(description)
+    if learned_category in category_index:
+        return learned_category
+
     for rule in category_rules["merchant_rules"]:
         pattern = rule["pattern"]
         category = rule["category"]
@@ -199,16 +230,18 @@ def build_transactions(
     pdf_path: Path,
     workbook_path: Path,
     categories_path: Path | None = None,
+    learned_path: Path | None = None,
 ) -> list[Transaction]:
     category_rules = load_categories(categories_path)
     category_index = load_category_index(workbook_path)
+    learned_categories = load_learned_categories(learned_path)
     parsed_rows = parse_pdf_transactions(pdf_path, category_rules)
     transactions: list[Transaction] = []
 
     for bank_heading, packed_payload, amount in parsed_rows:
         iso_date, description = packed_payload.split("|", 1)
         date = datetime.strptime(iso_date, "%Y-%m-%d")
-        category = choose_category(description, bank_heading, category_index, category_rules)
+        category = choose_category(description, bank_heading, category_index, category_rules, learned_categories)
         target_type = category_index[category]
         if amount <= 0:
             continue
@@ -281,13 +314,66 @@ def column_triplet(target_type: str) -> tuple[int, int, int]:
     raise ValueError(f"Tipo de gasto desconhecido: {target_type}")
 
 
+def sync_learning_sources(
+    workbook,
+    import_ws,
+    category_index: dict[str, str],
+    learned_path: Path | None = None,
+) -> dict[str, str]:
+    learned_categories = load_learned_categories(learned_path)
+    changed = False
+
+    for row in range(2, import_ws.max_row + 1):
+        description = import_ws.cell(row, 5).value
+        stored_category = import_ws.cell(row, 8).value
+        stored_type = import_ws.cell(row, 9).value
+        month_sheet_name = import_ws.cell(row, 10).value
+        row_number = import_ws.cell(row, 11).value
+
+        if not description:
+            continue
+
+        normalized_description = normalize_description(str(description))
+
+        if stored_category in category_index and learned_categories.get(normalized_description) != stored_category:
+            learned_categories[normalized_description] = str(stored_category)
+            changed = True
+
+        if not month_sheet_name or not row_number or month_sheet_name not in workbook.sheetnames:
+            continue
+
+        month_ws = workbook[month_sheet_name]
+        columns = column_triplet(str(stored_type))
+        current_category = month_ws.cell(int(row_number), columns[2]).value
+        if not current_category:
+            continue
+
+        current_category = str(current_category)
+        if current_category not in category_index:
+            continue
+
+        if current_category != stored_category:
+            import_ws.cell(row, 8).value = current_category
+            import_ws.cell(row, 9).value = category_index[current_category]
+            learned_categories[normalized_description] = current_category
+            changed = True
+
+    if changed:
+        save_learned_categories(learned_categories, learned_path)
+
+    return learned_categories
+
+
 def write_transactions(
     workbook_path: Path,
     transactions: Iterable[Transaction],
     output_path: Path | None = None,
+    learned_path: Path | None = None,
 ) -> dict[str, int]:
     wb = load_workbook(workbook_path, keep_vba=True, data_only=False)
     import_ws = ensure_import_sheet(wb)
+    category_index = load_category_index(workbook_path)
+    learned_categories = sync_learning_sources(wb, import_ws, category_index, learned_path=learned_path)
     existing_fingerprints = load_existing_fingerprints(import_ws)
     imported_count = 0
     skipped_count = 0
@@ -319,11 +405,13 @@ def write_transactions(
         import_ws.cell(import_row, 10).value = month_sheet_name
         import_ws.cell(import_row, 11).value = row
         existing_fingerprints.add(tx.fingerprint)
+        learned_categories[tx.description] = tx.target_category
         imported_count += 1
 
     final_path = output_path or workbook_path
     wb.save(final_path)
     wb.close()
+    save_learned_categories(learned_categories, learned_path)
     return {"imported": imported_count, "skipped": skipped_count}
 
 
@@ -333,8 +421,14 @@ def process_invoice(
     output_path: Path | None,
     dry_run: bool,
     categories_path: Path | None = None,
+    learned_path: Path | None = None,
 ) -> dict[str, int]:
-    transactions = build_transactions(pdf_path, workbook_path, categories_path=categories_path)
+    transactions = build_transactions(
+        pdf_path,
+        workbook_path,
+        categories_path=categories_path,
+        learned_path=learned_path,
+    )
     if dry_run:
         print(f"Arquivo: {pdf_path.name}")
         for tx in transactions:
@@ -344,7 +438,12 @@ def process_invoice(
             )
         return {"imported": 0, "skipped": 0, "found": len(transactions)}
 
-    result = write_transactions(workbook_path, transactions, output_path=output_path)
+    result = write_transactions(
+        workbook_path,
+        transactions,
+        output_path=output_path,
+        learned_path=learned_path,
+    )
     result["found"] = len(transactions)
     return result
 
@@ -355,6 +454,7 @@ def watch_folder(config: dict) -> None:
     processed_dir = Path(config["processed_dir"])
     output_path = Path(config["output_workbook_path"]) if config.get("output_workbook_path") else None
     categories_path = Path(config["categories_path"]) if config.get("categories_path") else None
+    learned_path = Path(config["learned_categories_path"]) if config.get("learned_categories_path") else None
     poll_seconds = int(config.get("poll_seconds", 15))
 
     processed_dir.mkdir(parents=True, exist_ok=True)
@@ -374,6 +474,7 @@ def watch_folder(config: dict) -> None:
                     output_path=output_path,
                     dry_run=False,
                     categories_path=categories_path,
+                    learned_path=learned_path,
                 )
                 pdf_path.replace(archived_path)
                 print(
@@ -408,6 +509,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--categories",
         help="Opcional: caminho do arquivo JSON com regras de categorias.",
     )
+    import_parser.add_argument(
+        "--learned-categories",
+        help="Opcional: caminho do arquivo JSON com categorias aprendidas.",
+    )
 
     watch_parser = subparsers.add_parser("watch", help="Monitora a pasta configurada de faturas.")
     watch_parser.add_argument(
@@ -431,12 +536,14 @@ def main() -> int:
     if args.command == "import-pdf":
         output_path = Path(args.output_workbook) if args.output_workbook else None
         categories_path = Path(args.categories) if args.categories else None
+        learned_path = Path(args.learned_categories) if args.learned_categories else None
         result = process_invoice(
             pdf_path=Path(args.pdf),
             workbook_path=Path(args.workbook),
             output_path=output_path,
             dry_run=args.dry_run,
             categories_path=categories_path,
+            learned_path=learned_path,
         )
         print(json.dumps(result, ensure_ascii=False))
         return 0
