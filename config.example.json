@@ -1,0 +1,7 @@
+{
+  "invoice_dir": "C:/Users/pedro/Google Drive/Faturas",
+  "processed_dir": "C:/Users/pedro/Google Drive/Faturas/processadas",
+  "workbook_path": "C:/Users/pedro/Google Drive/Controle financeiro (2026).xlsm",
+  "output_workbook_path": "",
+  "poll_seconds": 15
+}

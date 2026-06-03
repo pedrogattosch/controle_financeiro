@@ -1,0 +1,8 @@
+*.xlsm
+*.xlsx
+*.xls
+*.pdf
+
+config.json
+
+processadas/
