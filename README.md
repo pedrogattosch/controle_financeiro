@@ -1,6 +1,6 @@
 # Automação de Faturas para Controle Financeiro
 
-Este projeto importa uma fatura em PDF, identifica as compras pela data real da transação e lança os gastos nas abas mensais da sua planilha `.xlsm`.
+Este projeto importa uma fatura em PDF, identifica as compras pela data real da transação e lança os gastos nas abas mensais da sua planilha `.xlsx` ou `.xlsm`.
 
 ## O que esta primeira versão faz
 
@@ -12,7 +12,8 @@ Este projeto importa uma fatura em PDF, identifica as compras pela data real da 
 - cria uma aba oculta `_Importacoes` para evitar importações duplicadas;
 - carrega as regras de categorização a partir de `categories.json`;
 - reaproveita categorias aprendidas em `learned_categories.json`;
-- aprende correções manuais feitas por você em lançamentos já importados.
+- aprende correções manuais feitas por você em lançamentos já importados;
+- preserva os resumos e gráficos que já existirem na lateral da sua planilha.
 
 ## Instalação
 
@@ -38,6 +39,16 @@ Fluxo:
 - primeiro o script tenta uma categoria já aprendida para a mesma descrição;
 - se não encontrar, tenta as regras do `categories.json`;
 - se você corrigir manualmente a célula de categoria de um lançamento importado, essa correção passa a valer para as próximas vezes.
+
+## Resumos e gráficos da planilha
+
+Se a sua planilha já tiver fórmulas, totais por categoria e gráficos na lateral, o script não sobrescreve essa estrutura.
+
+Ele apenas preenche os lançamentos nas colunas principais, deixando a própria planilha recalcular:
+
+- totais por categoria;
+- gráficos de pizza;
+- resumos mensais.
 
 ## Teste manual
 

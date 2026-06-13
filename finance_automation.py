@@ -71,6 +71,11 @@ def load_config(config_path: Path) -> dict:
         return json.load(fh)
 
 
+def open_workbook(workbook_path: Path, data_only: bool = False):
+    keep_vba = workbook_path.suffix.lower() == ".xlsm"
+    return load_workbook(workbook_path, keep_vba=keep_vba, data_only=data_only)
+
+
 def load_categories(categories_path: Path | None = None) -> dict:
     resolved_path = categories_path or (BASE_DIR / "categories.json")
     with resolved_path.open("r", encoding="utf-8") as fh:
@@ -185,7 +190,7 @@ def parse_pdf_transactions(pdf_path: Path, category_rules: dict) -> list[tuple[s
 
 
 def load_category_index(workbook_path: Path) -> dict[str, str]:
-    wb = load_workbook(workbook_path, keep_vba=True, data_only=False)
+    wb = open_workbook(workbook_path, data_only=False)
     ws = wb["Categorias"]
     category_index: dict[str, str] = {}
     for row in range(2, ws.max_row + 1):
@@ -370,7 +375,7 @@ def write_transactions(
     output_path: Path | None = None,
     learned_path: Path | None = None,
 ) -> dict[str, int]:
-    wb = load_workbook(workbook_path, keep_vba=True, data_only=False)
+    wb = open_workbook(workbook_path, data_only=False)
     import_ws = ensure_import_sheet(wb)
     category_index = load_category_index(workbook_path)
     learned_categories = sync_learning_sources(wb, import_ws, category_index, learned_path=learned_path)
