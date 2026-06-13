@@ -1,8 +1,8 @@
-# Automação de Faturas para Controle Financeiro
+# Controle Financeiro
 
 Este projeto importa uma fatura em PDF, identifica as compras pela data real da transação e lança os gastos nas abas mensais da sua planilha `.xlsx` ou `.xlsm`.
 
-## O que esta primeira versão faz
+## O que esta primeira versão faz?
 
 - lê PDFs de fatura do Banco do Brasil em formato texto;
 - extrai `data`, `descrição` e `valor` de cada compra;
@@ -49,6 +49,52 @@ Ele apenas preenche os lançamentos nas colunas principais, deixando a própria 
 - totais por categoria;
 - gráficos de pizza;
 - resumos mensais.
+
+## Processo mensal
+
+Este é o fluxo recomendado para o seu uso mensal:
+
+1. Adicione a nova fatura em PDF em uma pasta do seu Google Drive.
+2. Aguarde o Google Drive sincronizar esse arquivo no seu computador.
+3. Abra o terminal na pasta do projeto.
+4. Rode o comando que usa os caminhos já configurados no `config.json`.
+5. Aguarde o script atualizar a planilha.
+6. Aguarde o Google Drive sincronizar a planilha atualizada.
+7. Abra a planilha pelo Google Drive no celular ou no navegador para visualizar os totais por categoria e os gráficos.
+
+Comando base:
+
+```bash
+python finance_automation.py process-drive --config config.json
+```
+
+Se quiser conferir antes de gravar:
+
+```bash
+python finance_automation.py process-drive --config config.json --dry-run
+```
+
+O `config.json` deve apontar para:
+
+- a pasta do Drive onde você coloca as faturas novas;
+- a pasta `processadas`;
+- a planilha financeira;
+- `categories.json`;
+- `learned_categories.json`.
+
+Se alguma categoria vier errada:
+
+1. Corrija manualmente a célula de categoria na planilha.
+2. Salve a planilha.
+3. Na próxima execução, o script reaproveita essa correção automaticamente.
+
+Observações importantes:
+
+- a planilha e a fatura precisam estar em uma pasta do Google Drive sincronizada localmente no computador;
+- o script atualiza o arquivo local sincronizado, e o Google Drive sobe essa alteração para a nuvem;
+- o comando `process-drive` processa todos os PDFs pendentes da pasta configurada em `invoice_dir` e move os processados para `processed_dir`;
+- a visualização no celular acontece depois que a sincronização do Drive terminar;
+- a correção manual de categoria funciona melhor quando você altera a célula de categoria de um lançamento que foi importado pelo próprio script.
 
 ## Teste manual
 

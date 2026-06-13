@@ -453,42 +453,56 @@ def process_invoice(
     return result
 
 
-def watch_folder(config: dict) -> None:
+def process_pending_invoices(config: dict, dry_run: bool = False) -> dict[str, int]:
     invoice_dir = Path(config["invoice_dir"])
     workbook_path = Path(config["workbook_path"])
     processed_dir = Path(config["processed_dir"])
     output_path = Path(config["output_workbook_path"]) if config.get("output_workbook_path") else None
     categories_path = Path(config["categories_path"]) if config.get("categories_path") else None
     learned_path = Path(config["learned_categories_path"]) if config.get("learned_categories_path") else None
-    poll_seconds = int(config.get("poll_seconds", 15))
 
     processed_dir.mkdir(parents=True, exist_ok=True)
+    pdf_files = sorted(invoice_dir.glob("*.pdf"))
+    summary = {"files": 0, "found": 0, "imported": 0, "skipped": 0}
+
+    for pdf_path in pdf_files:
+        archived_path = processed_dir / pdf_path.name
+        if archived_path.exists():
+            continue
+
+        try:
+            result = process_invoice(
+                pdf_path,
+                workbook_path,
+                output_path=output_path,
+                dry_run=dry_run,
+                categories_path=categories_path,
+                learned_path=learned_path,
+            )
+            summary["files"] += 1
+            summary["found"] += result.get("found", 0)
+            summary["imported"] += result.get("imported", 0)
+            summary["skipped"] += result.get("skipped", 0)
+
+            if not dry_run:
+                pdf_path.replace(archived_path)
+            print(
+                f"[OK] {pdf_path.name}: encontradas {result['found']}, "
+                f"importadas {result['imported']}, ignoradas {result['skipped']}."
+            )
+        except Exception as exc:
+            print(f"[ERRO] {pdf_path.name}: {exc}", file=sys.stderr)
+
+    return summary
+
+
+def watch_folder(config: dict) -> None:
+    invoice_dir = Path(config["invoice_dir"])
+    poll_seconds = int(config.get("poll_seconds", 15))
     print(f"Monitorando {invoice_dir} a cada {poll_seconds}s...")
 
     while True:
-        pdf_files = sorted(invoice_dir.glob("*.pdf"))
-        for pdf_path in pdf_files:
-            archived_path = processed_dir / pdf_path.name
-            if archived_path.exists():
-                continue
-
-            try:
-                result = process_invoice(
-                    pdf_path,
-                    workbook_path,
-                    output_path=output_path,
-                    dry_run=False,
-                    categories_path=categories_path,
-                    learned_path=learned_path,
-                )
-                pdf_path.replace(archived_path)
-                print(
-                    f"[OK] {pdf_path.name}: encontradas {result['found']}, "
-                    f"importadas {result['imported']}, ignoradas {result['skipped']}."
-                )
-            except Exception as exc:
-                print(f"[ERRO] {pdf_path.name}: {exc}", file=sys.stderr)
-
+        process_pending_invoices(config, dry_run=False)
         time.sleep(poll_seconds)
 
 
@@ -517,6 +531,21 @@ def build_parser() -> argparse.ArgumentParser:
     import_parser.add_argument(
         "--learned-categories",
         help="Opcional: caminho do arquivo JSON com categorias aprendidas.",
+    )
+
+    drive_parser = subparsers.add_parser(
+        "process-drive",
+        help="Processa todas as faturas PDF pendentes usando os caminhos do config.json.",
+    )
+    drive_parser.add_argument(
+        "--config",
+        default="config.json",
+        help="Caminho do arquivo JSON de configuração.",
+    )
+    drive_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Mostra os lançamentos interpretados sem gravar nada.",
     )
 
     watch_parser = subparsers.add_parser("watch", help="Monitora a pasta configurada de faturas.")
@@ -556,6 +585,12 @@ def main() -> int:
     if args.command == "watch":
         config = load_config(Path(args.config))
         watch_folder(config)
+        return 0
+
+    if args.command == "process-drive":
+        config = load_config(Path(args.config))
+        result = process_pending_invoices(config, dry_run=args.dry_run)
+        print(json.dumps(result, ensure_ascii=False))
         return 0
 
     parser.print_help()
