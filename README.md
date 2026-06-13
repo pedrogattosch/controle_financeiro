@@ -11,8 +11,18 @@ pip install -r requirements.txt
 ## Arquivos
 
 - `config.json`: caminhos da pasta de faturas, planilha e arquivos de categorias.
+  Sugestão: deixe a planilha e as faturas em uma pasta sincronizada do Google Drive.
 - `categories.json`: regras fixas de categorização.
+  Sugestão: use para regras conhecidas, como estabelecimentos que sempre caem na mesma categoria.
 - `learned_categories.json`: categorias aprendidas a partir de correções manuais.
+  Explicação: esse arquivo é atualizado pelo script ao longo do uso.
+
+## Configuração inicial
+
+Use como referência a planilha padrão `Controle Financeiro.xlsm`.
+
+1. Copie `config.example.json` para `config.json`.
+2. Copie `categories.example.json` para `categories.json`.
 
 ## Uso mensal
 

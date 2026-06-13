@@ -1,8 +1,3 @@
-*.xlsm
-*.xlsx
-*.xls
-*.pdf
-
 config.json
-
-processadas/
+categories.json
+learned_categories.json
